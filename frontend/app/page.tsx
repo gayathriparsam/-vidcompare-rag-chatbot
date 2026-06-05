@@ -20,10 +20,24 @@ export default function HomePage() {
   const [chatError, setChatError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/healthz`)
-      .then((r) => r.json())
-      .then((d) => setBackendOk(Boolean(d?.status === "ok" && d?.openai_configured)))
-      .catch(() => setBackendOk(false));
+    let cancelled = false;
+    async function check() {
+      try {
+        const r = await fetch(`${API_BASE}/healthz`);
+        const d = await r.json();
+        if (!cancelled) {
+          setBackendOk(Boolean(d?.status === "ok" && d?.openai_configured));
+        }
+      } catch {
+        if (!cancelled) setBackendOk(false);
+      }
+    }
+    check();
+    const t = setInterval(check, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, []);
 
   async function runAnalyze() {

@@ -145,18 +145,51 @@ async def fetch_youtube(url: str) -> Tuple[VideoMetadata, str]:
 
 
 async def _youtube_transcript(vid_id: str, url: str) -> str:
-    """Try youtube-transcript-api -> yt-dlp auto-captions -> Whisper."""
-    # 1. youtube-transcript-api
+    """Try youtube-transcript-api (en first, then any language, then translation) -> yt-dlp auto-captions -> Whisper."""
+    # 1. youtube-transcript-api — prefer English, but fall back to whatever's available
+    ytt_api = YouTubeTranscriptApi()
     try:
-        ytt_api = YouTubeTranscriptApi()
-        segments = ytt_api.fetch(vid_id)
-        text = " ".join(seg.text.strip() for seg in segments)
-        if text.strip():
-            return text
+        transcript_list = ytt_api.list(vid_id)
     except (NoTranscriptFound, TranscriptsDisabled, VideoUnavailable) as e:
-        logger.info("youtube-transcript-api miss for %s: %s", vid_id, e)
+        logger.info("youtube-transcript-api list miss for %s: %s", vid_id, e)
+        transcript_list = None
     except Exception as e:  # pragma: no cover
-        logger.warning("youtube-transcript-api error: %s", e)
+        logger.warning("youtube-transcript-api list error: %s", e)
+        transcript_list = None
+
+    if transcript_list is not None:
+        # Order: English manual > English generated > any manual > any generated > translate-to-en
+        for finder in (
+            lambda: transcript_list.find_manually_created_transcript(["en"]),
+            lambda: transcript_list.find_generated_transcript(["en"]),
+            lambda: next(iter(transcript_list), None),  # first available, any language
+        ):
+            try:
+                t = finder()
+                if t is None:
+                    continue
+                segs = t.fetch()
+                text = " ".join(s.text.strip() for s in segs)
+                if text.strip():
+                    logger.info("Got YT transcript via %s (lang=%s)", type(t).__name__, getattr(t, "language_code", "?"))
+                    return text
+            except Exception:
+                continue
+        # Last resort: translate whatever's there to English
+        try:
+            for t in transcript_list:
+                try:
+                    tr = t.translate("en")
+                    segs = tr.fetch()
+                    text = " ".join(s.text.strip() for s in segs)
+                    if text.strip():
+                        logger.info("Got YT transcript via translate (%s -> en)", getattr(t, "language_code", "?"))
+                        return text
+                    break
+                except Exception:
+                    continue
+        except Exception:
+            pass
 
     # 2. yt-dlp auto-captions
     try:
@@ -200,7 +233,8 @@ async def _youtube_transcript(vid_id: str, url: str) -> str:
             logger.error("Whisper fallback failed for %s: %s", url, e)
     raise RuntimeError(
         "Could not obtain a transcript for this YouTube video. "
-        "Auto-captions are disabled and no API key is configured for Whisper."
+        "Auto-captions were unavailable in any language and the Whisper "
+        "fallback also failed (see backend logs for the underlying error)."
     )
 
 
@@ -298,7 +332,10 @@ async def _instagram_transcript(url: str, info: Dict[str, Any]) -> str:
             logger.error("Whisper fallback failed for IG %s: %s", url, e)
     raise RuntimeError(
         "Could not obtain a transcript for this Instagram reel. "
-        "The reel has no captions and no API key is configured for Whisper."
+        "The reel has no captions, the Whisper audio fallback failed, and "
+        "Instagram is blocking anonymous downloads. Try (a) exporting cookies "
+        "from a logged-in instagram.com session into IG_COOKIE_FILE, or (b) "
+        "using the MANUAL_B_JSON override with a manual://video-b URL."
     )
 
 
@@ -310,37 +347,34 @@ async def _whisper_transcribe(url: str, platform: str) -> str:
         raise RuntimeError("OPENAI_API_KEY is not set; cannot use Whisper fallback.")
 
     outdir = tempfile.mkdtemp(prefix="rag_audio_")
-    outtmpl = os.path.join(outdir, "%(id)s.%(ext)s")
+    outtmpl = os.path.join(outdir, f"{platform}_%(id)s.%(ext)s")
+    # Skip FFmpegExtractAudio so we don't need ffmpeg installed. Whisper accepts
+    # m4a, webm, mp4, mp3, wav, etc., so the raw bestaudio file is fine.
     opts: Dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "noplaylist": True,
-        "format": "bestaudio/best",
+        "format": "bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best",
         "outtmpl": outtmpl,
-        "postprocessors": [
-            {
-                "key": "FFmpegExtractAudio",
-                "preferredcodec": "mp3",
-                "preferredquality": "64",
-            }
-        ],
     }
     filepath = await _run_ytdlp_download(opts, url)
-    # yt-dlp might have written the .mp3 next to the requested path
-    mp3_path = os.path.splitext(filepath)[0] + ".mp3"
-    if not os.path.exists(mp3_path):
-        mp3_path = filepath  # may already be mp3
+    if not os.path.exists(filepath):
+        # Some platforms may write the actual file with a different suffix
+        for cand in os.listdir(outdir):
+            p = os.path.join(outdir, cand)
+            if os.path.isfile(p) and os.path.getsize(p) > 0:
+                filepath = p
+                break
 
     client = OpenAI(api_key=settings.openai_api_key)
 
     def _go() -> str:
-        with open(mp3_path, "rb") as f:
+        with open(filepath, "rb") as f:
             resp = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=f,
                 response_format="text",
             )
-        # gpt-4o transcribe returns string when format=text
         return resp if isinstance(resp, str) else getattr(resp, "text", str(resp))
 
     text = await asyncio.to_thread(_go)
