@@ -39,9 +39,9 @@ Visit http://localhost:8000/docs for OpenAPI / Swagger.
 cd frontend
 npm install
 cp .env.example .env.local    # NEXT_PUBLIC_API_BASE=http://localhost:8000
-npm run dev -- -p 3000
+npm run dev                   # uses port 3001 by default (3000 is often Grafana)
 ```
-Open http://localhost:3000 and paste a YouTube URL + an Instagram Reel URL.
+Open http://localhost:3001 and paste a YouTube URL + an Instagram Reel URL.
 
 > **If Instagram is blocking anonymous scraping** (very common in 2025), use the
 > manual override: set `MANUAL_A_JSON`/`MANUAL_B_JSON` in `backend/.env` to a
