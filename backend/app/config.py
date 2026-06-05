@@ -25,5 +25,13 @@ class Settings(BaseSettings):
     # Cost guard: refuse to embed if total transcript > this many chars
     max_transcript_chars: int = 60_000
 
+    # Optional Instagram cookies (Netscape format) — see backend/README.md
+    ig_cookie_file: str = ""
+
+    # Optional manual overrides (JSON). Useful for demo when IG blocks scraping.
+    # Format: {"meta": {...}, "transcript": "..."}
+    manual_a_json: str = ""
+    manual_b_json: str = ""
+
 
 settings = Settings()

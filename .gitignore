@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+.env
+.chroma/
+.DS_Store
+node_modules/
+.next/
+out/
+*.log
+.idea/
+.vscode/

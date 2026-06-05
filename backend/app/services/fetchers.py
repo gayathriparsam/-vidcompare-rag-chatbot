@@ -208,13 +208,16 @@ async def _youtube_transcript(vid_id: str, url: str) -> str:
 # Instagram
 # --------------------------------------------------------------------------- #
 def _ig_metadata_opts() -> Dict[str, Any]:
-    return {
+    opts: Dict[str, Any] = {
         "quiet": True,
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
         "extractor_args": {"instagram": {"skip_warnings": True}},
     }
+    if settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file):
+        opts["cookiefile"] = settings.ig_cookie_file
+    return opts
 
 
 async def fetch_instagram(url: str) -> Tuple[VideoMetadata, str]:
@@ -375,4 +378,23 @@ async def fetch_video(url: str, video_id: str) -> Tuple[VideoMetadata, str]:
     if len(transcript) > settings.max_transcript_chars:
         transcript = transcript[: settings.max_transcript_chars]
         meta.transcript_chars = len(transcript)
+    return meta, transcript
+
+
+def fetch_manual(video_id: str, json_path: str) -> Tuple[VideoMetadata, str]:
+    """Load a video from a local JSON file. Used when scraping is blocked."""
+    import json
+    with open(json_path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    meta_dict = dict(data.get("meta") or {})
+    meta_dict["video_id"] = video_id
+    transcript = data.get("transcript") or ""
+    # Recompute engagement rate for safety
+    meta_dict["engagement_rate"] = compute_engagement(
+        int(meta_dict.get("views") or 0),
+        int(meta_dict.get("likes") or 0),
+        int(meta_dict.get("comments") or 0),
+    )
+    meta_dict["transcript_chars"] = len(transcript)
+    meta = VideoMetadata(**meta_dict)
     return meta, transcript

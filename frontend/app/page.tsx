@@ -13,10 +13,18 @@ export default function HomePage() {
   const [analyzing, setAnalyzing] = useState(false);
   const [analyzeError, setAnalyzeError] = useState<string | null>(null);
   const [session, setSession] = useState<AnalyzeResponse | null>(null);
+  const [backendOk, setBackendOk] = useState<boolean | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_BASE}/healthz`)
+      .then((r) => r.json())
+      .then((d) => setBackendOk(Boolean(d?.status === "ok" && d?.openai_configured)))
+      .catch(() => setBackendOk(false));
+  }, []);
 
   async function runAnalyze() {
     setAnalyzeError(null);
@@ -158,6 +166,24 @@ export default function HomePage() {
         >
           built with LangGraph · Chroma · OpenAI
         </a>
+        <div className="ml-4 hidden items-center gap-2 text-xs md:flex">
+          <span
+            className={`inline-block h-2 w-2 rounded-full ${
+              backendOk === null
+                ? "bg-zinc-500"
+                : backendOk
+                ? "bg-emerald-400"
+                : "bg-amber-400"
+            }`}
+          />
+          <span className="text-zinc-400">
+            {backendOk === null
+              ? "checking backend…"
+              : backendOk
+              ? "backend ready"
+              : "backend missing OPENAI_API_KEY"}
+          </span>
+        </div>
       </header>
 
       <section className="mb-6 rounded-2xl border border-ink-700 bg-ink-900/70 p-4 backdrop-blur">

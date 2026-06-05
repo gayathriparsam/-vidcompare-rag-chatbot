@@ -12,8 +12,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 
 from .agents.rag_agent import RAGAgent
+from .config import settings
 from .schemas.models import AnalyzeRequest, AnalyzeResponse, ChatRequest
-from .services.fetchers import fetch_video
+from .services.fetchers import fetch_manual, fetch_video
 from .services.ingest import index_transcripts
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s :: %(message)s")
@@ -36,18 +37,40 @@ _agent = RAGAgent()
 
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "llm": settings.llm_model,
+        "embedding": settings.embedding_model,
+        "vector_db": "chroma",
+        "openai_configured": bool(settings.openai_api_key),
+        "ig_cookie_configured": bool(settings.ig_cookie_file)
+        and os.path.exists(settings.ig_cookie_file),
+        "manual_a": bool(settings.manual_a_json),
+        "manual_b": bool(settings.manual_b_json),
+    }
 
 
 @app.post("/api/analyze", response_model=AnalyzeResponse)
 async def analyze(req: AnalyzeRequest):
     if not req.url_a or not req.url_b:
         raise HTTPException(400, "url_a and url_b are required")
+    if not settings.openai_api_key:
+        raise HTTPException(
+            400,
+            "OPENAI_API_KEY is not set on the backend. Set it in backend/.env and restart. "
+            "Required for embeddings. See backend/README.md.",
+        )
 
     session_id = uuid.uuid4().hex[:16]
     try:
-        meta_a, tx_a = await fetch_video(req.url_a, "A")
-        meta_b, tx_b = await fetch_video(req.url_b, "B")
+        if settings.manual_a_json and req.url_a.startswith("manual://"):
+            meta_a, tx_a = fetch_manual("A", settings.manual_a_json)
+        else:
+            meta_a, tx_a = await fetch_video(req.url_a, "A")
+        if settings.manual_b_json and req.url_b.startswith("manual://"):
+            meta_b, tx_b = fetch_manual("B", settings.manual_b_json)
+        else:
+            meta_b, tx_b = await fetch_video(req.url_b, "B")
     except Exception as e:
         raise HTTPException(400, f"Failed to fetch videos: {e}")
 
