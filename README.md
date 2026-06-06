@@ -21,7 +21,7 @@ analyst that cites the transcript chunks it used. Built to be the
 ### 0. Prerequisites
 - Python **3.11+** (3.12/3.13 also fine; 3.14 works but emits a pydantic v1 deprecation warning from langchain-core)
 - Node **18+**
-- An **OpenAI API key** with credits (used for embeddings + chat + optional Whisper)
+- An **OpenAI API key is OPTIONAL.** The app falls back to local embeddings (Chroma's built-in `all-MiniLM-L6-v2`, ~80MB ONNX) and an extractive-QA template so it runs with **zero API quota, zero cost**. If you have a key with credits, you'll get higher-quality generative answers.
 - Optional: a Netscape-format `ig_cookies.txt` (only needed if you want to scrape Instagram without using the manual override)
 
 ### 1. Backend
@@ -219,6 +219,23 @@ the rest of the code is unchanged.
 ```
 
 ---
+
+## Two modes: OpenAI or fully-local
+
+| Layer | With `OPENAI_API_KEY` set + credits | Without key (or with `FORCE_LOCAL_*=true`) |
+|---|---|---|
+| Embeddings | OpenAI `text-embedding-3-small` (1536d) | Chroma `all-MiniLM-L6-v2` (384d, ONNX) |
+| LLM chat | `gpt-4o-mini` streaming | Template-based extractive QA (still streams) |
+| Whisper fallback | OpenAI Whisper API | OpenAI Whisper API (needs key) |
+| Quota | $0.04 / 1K creators | $0 |
+| Latency to first token | 350–600 ms | ~50 ms (no LLM call) |
+
+The agent also **auto-falls back**: if the OpenAI LLM call returns
+`429 insufficient_quota` mid-session, the current turn seamlessly switches
+to the extractive path and a note is shown. No crash, no need to restart.
+
+Set `FORCE_LOCAL_EMBEDDINGS=true` and `FORCE_LOCAL_LLM=true` in
+`backend/.env` to pin local mode regardless of key state.
 
 ## Known limitations (and what I'd do next)
 
