@@ -12,3 +12,5 @@ chromadb==0.5.18
 youtube-transcript-api==0.6.2
 yt-dlp==2025.3.31
 openai==1.55.0
+bcrypt==5.0.0
+PyJWT==2.10.1

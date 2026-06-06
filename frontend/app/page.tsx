@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AnalyzeResponse, ChatMessage, Citation, VideoMetadata } from "./types";
 import VideoCard from "./components/VideoCard";
 import ChatPanel from "./components/ChatPanel";
+import LoginPanel from "./components/LoginPanel";
 import { SUGGESTED } from "./suggested";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "";
@@ -18,6 +19,39 @@ export default function HomePage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
+
+  // Auth state — persisted to localStorage so a refresh doesn't log you out.
+  const [token, setToken] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
+  useEffect(() => {
+    try {
+      const t = localStorage.getItem("vidcompare_token");
+      const e = localStorage.getItem("vidcompare_email");
+      if (t && e) {
+        setToken(t);
+        setEmail(e);
+      }
+    } catch {}
+  }, []);
+  function onAuth(t: string, e: string) {
+    setToken(t);
+    setEmail(e);
+    try {
+      localStorage.setItem("vidcompare_token", t);
+      localStorage.setItem("vidcompare_email", e);
+    } catch {}
+  }
+  function onLogout() {
+    setToken(null);
+    setEmail(null);
+    try {
+      localStorage.removeItem("vidcompare_token");
+      localStorage.removeItem("vidcompare_email");
+    } catch {}
+  }
+  function authHeaders(): Record<string, string> {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -52,7 +86,7 @@ export default function HomePage() {
     try {
       const r = await fetch(`${API_BASE}/api/analyze`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...authHeaders() },
         body: JSON.stringify({ url_a: urlA.trim(), url_b: urlB.trim() }),
       });
       if (!r.ok) {
@@ -197,6 +231,9 @@ export default function HomePage() {
               ? "backend ready"
               : "backend offline"}
           </span>
+        </div>
+        <div className="ml-3">
+          <LoginPanel token={token} email={email} onAuth={onAuth} onLogout={onLogout} />
         </div>
       </header>
 

@@ -43,5 +43,9 @@ class Settings(BaseSettings):
     manual_a_json: str = ""
     manual_b_json: str = ""
 
+    # JWT signing secret for auth tokens. Set via env or auto-generated.
+    # In production, ALWAYS set this to a long random value.
+    jwt_secret: str = "dev-only-change-me-7f2a9c4e1b6d8e0f3a5c7e9b1d3f5a7c"
+
 
 settings = Settings()

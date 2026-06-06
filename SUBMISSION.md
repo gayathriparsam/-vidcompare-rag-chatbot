@@ -54,8 +54,9 @@ gpt-4o-mini → gpt-4o). Cost analysis (in README) shows **~$320/month at
 
 - [x] GitHub repo: `gayathriparsam/-vidcompare-rag-chatbot`
 - [x] README with quick start, architecture, cost analysis
-- [x] 10+ commits telling a story (foundation → UI → robustness → zero-cost → IG hardening)
+- [x] 12+ commits telling a story (foundation → UI → robustness → zero-cost → IG hardening → auth)
 - [x] End-to-end smoke test passes offline
+- [x] Auth: signup/login/JWT (optional, doesn't break the demo path)
 - [x] License (MIT)
 - [ ] Loom demo (you record — script above)
 - [ ] Submit form (description above)
@@ -88,5 +89,21 @@ gpt-4o-mini → gpt-4o). Cost analysis (in README) shows **~$320/month at
      (local embeddings + extractive-QA template) — not a polite 503.
 - Production thinking: every external dep has a fallback (caption →
   auto-translated caption → Whisper → extractive), the env-var story is
-  documented, the IG blocking is surfaced (not silently swallowed), and
-  the cost model is on the README not the LinkedIn post.
+  documented, the IG blocking is surfaced (not silently swallowed), the
+  auth flow is optional (doesn't break the demo path), and the cost model
+  is on the README not the LinkedIn post.
+
+## Auth (added late, but done right)
+
+- **Backend** (`backend/app/auth.py`): SQLite users table (no extra DB to run),
+  bcrypt password hashing (cost 12), PyJWT HS256 tokens, 7-day expiry.
+- **Endpoints**: `POST /api/auth/signup`, `POST /api/auth/login`,
+  `GET /api/auth/me`, `GET /api/me/sessions`.
+- **Frontend** (`frontend/app/components/LoginPanel.tsx`): toggleable sign-in
+  panel in the header, JWT stored in `localStorage`, sent as
+  `Authorization: Bearer <token>` on `/api/analyze`.
+- **Optional, not enforced**: the existing demo flow works without an account.
+  When you sign in, your past sessions are saved so you can revisit them.
+- **Why done this way**: didn't want to risk breaking the 11-commit
+  foundation. Auth is additive; remove the LoginPanel and the whole app
+  still works.

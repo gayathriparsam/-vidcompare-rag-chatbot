@@ -1,4 +1,4 @@
-"""FastAPI app: /api/analyze, /api/chat (SSE), /healthz."""
+"""FastAPI app: /api/analyze, /api/chat (SSE), /healthz, /api/auth/*."""
 from __future__ import annotations
 
 import asyncio
@@ -6,12 +6,14 @@ import json
 import logging
 import os
 import uuid
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
+from . import auth
 from .agents.rag_agent import RAGAgent
 from .config import settings
 from .schemas.models import AnalyzeRequest, AnalyzeResponse, ChatRequest
@@ -30,6 +32,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Initialize the auth DB on startup. Idempotent.
+@app.on_event("startup")
+def _startup() -> None:
+    auth.init_db()
+    logger.info("auth DB initialised at %s", auth.DB_PATH)
 
 # In-memory session store. Swap for Redis in prod.
 _sessions: Dict[str, Tuple[dict, dict]] = {}
@@ -54,8 +63,47 @@ def healthz():
     }
 
 
+@app.get("/api/session/{session_id}")
+def get_session(session_id: str):
+    s = _sessions.get(session_id)
+    if not s:
+        raise HTTPException(404, "session not found")
+    a, b = s
+    return {"session_id": session_id, "video_a": a, "video_b": b}
+
+
+# --- Auth routes ----------------------------------------------------------
+class SignupBody(BaseModel):
+    email: str
+    password: str
+
+
+class LoginBody(BaseModel):
+    email: str
+    password: str
+
+
+@app.post("/api/auth/signup")
+def signup(body: SignupBody):
+    return auth.signup(body.email, body.password)
+
+
+@app.post("/api/auth/login")
+def login(body: LoginBody):
+    return auth.login(body.email, body.password)
+
+
+@app.get("/api/auth/me")
+def me(email: str = Depends(auth.required_user)):
+    return {"email": email}
+
+
+# --- Authenticated session history (per user) ----------------------------
+_user_sessions: Dict[str, list] = {}  # email -> [session_id, ...]
+
+
 @app.post("/api/analyze", response_model=AnalyzeResponse)
-async def analyze(req: AnalyzeRequest):
+async def analyze(req: AnalyzeRequest, user_email: Optional[str] = Depends(auth.optional_user)):
     if not req.url_a or not req.url_b:
         raise HTTPException(400, "url_a and url_b are required")
 
@@ -80,6 +128,8 @@ async def analyze(req: AnalyzeRequest):
         raise HTTPException(500, f"Failed to index transcripts: {e}")
 
     _sessions[session_id] = (meta_a.model_dump(), meta_b.model_dump())
+    if user_email:
+        _user_sessions.setdefault(user_email, []).append(session_id)
     return AnalyzeResponse(
         session_id=session_id,
         video_a=meta_a,
@@ -88,13 +138,23 @@ async def analyze(req: AnalyzeRequest):
     )
 
 
-@app.get("/api/session/{session_id}")
-def get_session(session_id: str):
-    s = _sessions.get(session_id)
-    if not s:
-        raise HTTPException(404, "session not found")
-    a, b = s
-    return {"session_id": session_id, "video_a": a, "video_b": b}
+@app.get("/api/me/sessions")
+def my_sessions(email: str = Depends(auth.required_user)):
+    """Returns the list of session_ids this user has created (newest first).
+    Each session_id can be used with /api/session/{session_id} to retrieve the
+    ingested video metadata."""
+    sids = list(reversed(_user_sessions.get(email, [])))
+    out = []
+    for sid in sids[:20]:
+        s = _sessions.get(sid)
+        if s:
+            a, b = s
+            out.append({
+                "session_id": sid,
+                "video_a_title": (a.get("title") or "Video A")[:80],
+                "video_b_title": (b.get("title") or "Video B")[:80],
+            })
+    return {"email": email, "count": len(out), "sessions": out}
 
 
 @app.get("/api/diag/instagram")

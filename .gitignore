@@ -19,3 +19,9 @@ next.err
 
 # Local embedding model cache (created on first run)
 .cache/
+
+# Auth database (created on first signup, contains bcrypt password hashes)
+vidcompare_auth.db
+vidcompare_auth.db-journal
+vidcompare_auth.db-wal
+vidcompare_auth.db-shm
