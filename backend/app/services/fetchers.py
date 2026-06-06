@@ -249,7 +249,10 @@ def _ig_metadata_opts() -> Dict[str, Any]:
         "noplaylist": True,
         "extractor_args": {"instagram": {"skip_warnings": True}},
     }
-    if settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file):
+    if settings.ig_browser:
+        # yt-dlp will read cookies directly from the browser's local DB
+        opts["cookiesfrombrowser"] = (settings.ig_browser, None, None, None)
+    elif settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file):
         opts["cookiefile"] = settings.ig_cookie_file
     return opts
 
@@ -294,9 +297,9 @@ async def fetch_instagram(url: str) -> Tuple[VideoMetadata, str]:
 
 
 async def _instagram_transcript(url: str, info: Dict[str, Any]) -> str:
-    # 1. yt-dlp captions
+    # 1. yt-dlp captions (will work if cookies are configured)
     try:
-        opts = {
+        opts: Dict[str, Any] = {
             "quiet": True,
             "no_warnings": True,
             "skip_download": True,
@@ -304,6 +307,11 @@ async def _instagram_transcript(url: str, info: Dict[str, Any]) -> str:
             "writeautomaticsub": True,
             "outtmpl": tempfile.mkdtemp() + "/%(id)s.%(ext)s",
         }
+        # Propagate cookies
+        if settings.ig_browser:
+            opts["cookiesfrombrowser"] = (settings.ig_browser, None, None, None)
+        elif settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file):
+            opts["cookiefile"] = settings.ig_cookie_file
         with yt_dlp.YoutubeDL(opts) as ydl:
             info2 = ydl.extract_info(url, download=False)
             for lang_set in (info2.get("subtitles") or {}, info2.get("automatic_captions") or {}):
@@ -324,7 +332,7 @@ async def _instagram_transcript(url: str, info: Dict[str, Any]) -> str:
     except Exception as e:  # pragma: no cover
         logger.info("IG caption fetch failed: %s", e)
 
-    # 2. Whisper fallback
+    # 2. Whisper fallback (downloads audio and transcribes)
     if settings.openai_api_key:
         try:
             return await _whisper_transcribe(url, "instagram")
@@ -333,9 +341,11 @@ async def _instagram_transcript(url: str, info: Dict[str, Any]) -> str:
     raise RuntimeError(
         "Could not obtain a transcript for this Instagram reel. "
         "The reel has no captions, the Whisper audio fallback failed, and "
-        "Instagram is blocking anonymous downloads. Try (a) exporting cookies "
-        "from a logged-in instagram.com session into IG_COOKIE_FILE, or (b) "
-        "using the MANUAL_B_JSON override with a manual://video-b URL."
+        "Instagram is blocking anonymous downloads. Fix by setting one of: "
+        "(a) IG_BROWSER=chrome  in backend/.env  (yt-dlp will read cookies "
+        "from your logged-in Chrome), (b) IG_COOKIE_FILE=./ig_cookies.txt  "
+        "(export from a 'Get cookies.txt LOCALLY' extension), or (c) use the "
+        "MANUAL_B_JSON override with a manual://video-b URL."
     )
 
 

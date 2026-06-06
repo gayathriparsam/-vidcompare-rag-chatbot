@@ -10,3 +10,12 @@ out/
 *.log
 .idea/
 .vscode/
+
+# Local dev process output files (Windows Start-Process -RedirectStandardOutput)
+uvicorn.out
+uvicorn.err
+next.out
+next.err
+
+# Local embedding model cache (created on first run)
+.cache/

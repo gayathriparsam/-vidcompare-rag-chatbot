@@ -1,11 +1,12 @@
 """FastAPI app: /api/analyze, /api/chat (SSE), /healthz."""
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 import uuid
-from typing import Dict, Tuple
+from typing import Any, Dict, Tuple
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,6 +95,82 @@ def get_session(session_id: str):
         raise HTTPException(404, "session not found")
     a, b = s
     return {"session_id": session_id, "video_a": a, "video_b": b}
+
+
+@app.get("/api/diag/instagram")
+async def diag_instagram(url: str = "https://www.instagram.com/reel/C3tK9bHJW1n/"):
+    """Diagnose Instagram fetching: tries yt-dlp, reports exactly what's
+    configured vs missing. Useful for the 'I pasted an IG URL and got an
+    error' support path."""
+    import yt_dlp
+
+    report: Dict = {
+        "url": url,
+        "ig_browser": settings.ig_browser or None,
+        "ig_cookie_file": settings.ig_cookie_file if settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file) else None,
+        "openai_configured": bool(settings.openai_api_key),
+        "manual_b_configured": bool(settings.manual_b_json),
+        "fetch": None,
+        "fix": [],
+    }
+
+    opts: Dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+        "extractor_args": {"instagram": {"skip_warnings": True}},
+    }
+    if settings.ig_browser:
+        opts["cookiesfrombrowser"] = (settings.ig_browser, None, None, None)
+    elif settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file):
+        opts["cookiefile"] = settings.ig_cookie_file
+
+    def _go() -> Dict:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False) or {}
+        return {
+            "title": info.get("title"),
+            "uploader": info.get("uploader") or info.get("creator"),
+            "view_count": info.get("view_count") or info.get("play_count"),
+            "like_count": info.get("like_count"),
+            "comment_count": info.get("comment_count"),
+            "duration": info.get("duration"),
+            "description": (info.get("description") or "")[:200],
+        }
+
+    try:
+        report["fetch"] = await asyncio.to_thread(_go)
+        report["status"] = "ok"
+    except Exception as e:
+        report["fetch"] = {"error": str(e)[:300]}
+        report["status"] = "error"
+
+    # Build actionable fix list
+    if report["status"] == "error":
+        err_text = (report["fetch"].get("error") or "")
+        if not (settings.ig_browser or (settings.ig_cookie_file and os.path.exists(settings.ig_cookie_file))):
+            report["fix"].append(
+                "Instagram blocks anonymous GraphQL calls in 2025. Set ONE of these in backend/.env then restart uvicorn:\n"
+                "  IG_BROWSER=chrome        # easiest: yt-dlp reads cookies from your logged-in Chrome\n"
+                "  IG_COOKIE_FILE=./ig_cookies.txt   # export from a 'Get cookies.txt LOCALLY' extension"
+            )
+        if "Could not copy" in err_text and "cookie" in err_text.lower():
+            report["fix"].append(
+                f"yt-dlp cannot decrypt the cookie DB for {settings.ig_browser or 'your browser'} "
+                "(common on Chromium 127+ with App-Bound Encryption). Workarounds:\n"
+                "  1) Use IG_COOKIE_FILE: install a 'Get cookies.txt LOCALLY' extension while logged into instagram.com, export the cookies, save as backend/ig_cookies.txt, set IG_COOKIE_FILE=./ig_cookies.txt in .env, then restart.\n"
+                "  2) OR use the manual override — set MANUAL_B_JSON=./sample_data/video_b.json and use 'manual://video-b' in the UI. This is the recommended demo path."
+            )
+        if not settings.openai_api_key:
+            report["fix"].append(
+                "Whisper fallback needs OPENAI_API_KEY (used to transcribe the audio if there are no captions)."
+            )
+        if not settings.manual_b_json:
+            report["fix"].append(
+                "OR use the manual override: set MANUAL_B_JSON=./sample_data/video_b.json and use 'manual://video-b' as the URL in the UI."
+            )
+    return report
 
 
 @app.post("/api/chat")

@@ -34,6 +34,9 @@ class Settings(BaseSettings):
 
     # Optional Instagram cookies (Netscape format) — see backend/README.md
     ig_cookie_file: str = ""
+    # OR: auto-extract cookies from a logged-in browser (yt-dlp native).
+    # Values: "chrome", "edge", "firefox", "brave", "opera", "chromium", "vivaldi", "safari"
+    ig_browser: str = ""
 
     # Optional manual overrides (JSON). Useful for demo when IG blocks scraping.
     # Format: {"meta": {...}, "transcript": "..."}
