@@ -15,6 +15,13 @@ class Settings(BaseSettings):
 
     llm_model: str = "gpt-4o-mini"
     embedding_model: str = "text-embedding-3-small"
+    # Force local embeddings (Chroma's built-in all-MiniLM-L6-v2) even if a
+    # key is set. Useful when OpenAI quota is exhausted.
+    force_local_embeddings: bool = False
+    # Force the extractive (template-based) QA fallback even if a key is set.
+    # The fallback returns the most relevant transcript chunks as a synthesised
+    # answer — no LLM call, no quota needed.
+    force_local_llm: bool = False
 
     chroma_persist_dir: str = "./.chroma"
     chroma_collection: str = "video_rag"

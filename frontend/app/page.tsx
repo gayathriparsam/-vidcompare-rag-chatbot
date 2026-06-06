@@ -26,7 +26,7 @@ export default function HomePage() {
         const r = await fetch(`${API_BASE}/healthz`);
         const d = await r.json();
         if (!cancelled) {
-          setBackendOk(Boolean(d?.status === "ok" && d?.openai_configured));
+          setBackendOk(Boolean(d?.status === "ok"));
         }
       } catch {
         if (!cancelled) setBackendOk(false);
@@ -195,7 +195,7 @@ export default function HomePage() {
               ? "checking backend…"
               : backendOk
               ? "backend ready"
-              : "backend missing OPENAI_API_KEY"}
+              : "backend offline"}
           </span>
         </div>
       </header>

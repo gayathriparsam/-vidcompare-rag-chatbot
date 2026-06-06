@@ -37,12 +37,15 @@ _agent = RAGAgent()
 
 @app.get("/healthz")
 def healthz():
+    using_local = settings.force_local_embeddings or not settings.openai_api_key
     return {
         "status": "ok",
         "llm": settings.llm_model,
         "embedding": settings.embedding_model,
+        "embedding_backend": "local" if using_local else "openai",
         "vector_db": "chroma",
         "openai_configured": bool(settings.openai_api_key),
+        "openai_required": False,   # app works locally too
         "ig_cookie_configured": bool(settings.ig_cookie_file)
         and os.path.exists(settings.ig_cookie_file),
         "manual_a": bool(settings.manual_a_json),
@@ -54,12 +57,6 @@ def healthz():
 async def analyze(req: AnalyzeRequest):
     if not req.url_a or not req.url_b:
         raise HTTPException(400, "url_a and url_b are required")
-    if not settings.openai_api_key:
-        raise HTTPException(
-            400,
-            "OPENAI_API_KEY is not set on the backend. Set it in backend/.env and restart. "
-            "Required for embeddings. See backend/README.md.",
-        )
 
     session_id = uuid.uuid4().hex[:16]
     try:
