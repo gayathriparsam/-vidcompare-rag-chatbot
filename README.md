@@ -261,5 +261,5 @@ Set `FORCE_LOCAL_EMBEDDINGS=true` and `FORCE_LOCAL_LLM=true` in
 
 ---
 
-## License
-MIT.
+
+
